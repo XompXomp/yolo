@@ -2,9 +2,17 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const os = require('os');
+const fs = require('fs');
 
 let mainWindow;
 const instances = new Map();
+const modelsPath = path.join(__dirname, 'models');
+
+// Ensure models directory exists
+if (!fs.existsSync(modelsPath)) {
+    fs.mkdirSync(modelsPath);
+}
+
 
 function createWindow() {
     mainWindow = new BrowserWindow({
@@ -53,7 +61,18 @@ function getLocalIp() {
 // IPC Handlers
 ipcMain.handle('get-local-ip', () => getLocalIp());
 
+ipcMain.handle('get-models', () => {
+    try {
+        const files = fs.readdirSync(modelsPath);
+        return files.filter(file => file.endsWith('.pt') || file.endsWith('.onnx'));
+    } catch (err) {
+        console.error("Failed to read models directory", err);
+        return [];
+    }
+});
+
 ipcMain.handle('start-instance', async (event, config) => {
+
     const { id, port, model } = config;
 
     // Decide python command (python3 for Mac)

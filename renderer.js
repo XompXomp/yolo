@@ -18,10 +18,31 @@ window.electronAPI.getLocalIp().then(ip => {
     localIpDisplay.innerText = `IP: ${localIp}`;
 });
 
+async function refreshModels() {
+    const models = await window.electronAPI.getModels();
+    modelSelect.innerHTML = '';
+
+    if (models.length === 0) {
+        const opt = document.createElement('option');
+        opt.innerText = 'No models found in /models';
+        opt.disabled = true;
+        modelSelect.appendChild(opt);
+    } else {
+        models.forEach(model => {
+            const opt = document.createElement('option');
+            opt.value = `models/${model}`;
+            opt.innerText = model;
+            modelSelect.appendChild(opt);
+        });
+    }
+}
+
 // UI Event Handlers
-addInstanceBtn.onclick = () => {
+addInstanceBtn.onclick = async () => {
+    await refreshModels();
     modalOverlay.classList.remove('hidden');
 };
+
 
 cancelAddBtn.onclick = () => {
     modalOverlay.classList.add('hidden');

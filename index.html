@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +8,7 @@
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
+
 <body>
     <div class="app-container">
         <!-- Sidebar -->
@@ -59,11 +61,10 @@
             <div class="form-group">
                 <label>Model</label>
                 <select id="model-select">
-                    <option value="yolov8n.pt">YOLOv8 Nano (Fastest)</option>
-                    <option value="yolov8s.pt">YOLOv8 Small</option>
-                    <option value="yolov8m.pt">YOLOv8 Medium</option>
+                    <option>Loading models...</option>
                 </select>
             </div>
+
             <div class="modal-actions">
                 <button id="cancel-add" class="btn btn-secondary">Cancel</button>
                 <button id="confirm-add" class="btn btn-primary">Start Instance</button>
@@ -73,4 +74,5 @@
 
     <script src="renderer.js"></script>
 </body>
+
 </html>
