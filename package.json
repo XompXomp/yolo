@@ -1,0 +1,16 @@
+{
+    "name": "yolo-instance-manager",
+    "version": "1.0.0",
+    "description": "macOS YOLO Instance Manager",
+    "main": "main.js",
+    "scripts": {
+        "start": "electron .",
+        "dev": "electron ."
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "devDependencies": {
+        "electron": "^31.0.0"
+    }
+}
