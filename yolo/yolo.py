@@ -1,15 +1,27 @@
 import argparse
 import asyncio
+import base64
 import json
 import logging
 import threading
 import time
+import uuid
 from typing import Optional
 
 import cv2
+import numpy as np
 import torch
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Header,
+    HTTPException,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from pydantic import BaseModel
 from ultralytics import YOLO
 
@@ -52,6 +64,133 @@ class HealthResponse(BaseModel):
 class ModelMetadata(BaseModel):
     model_name: str
     classes: list[str]
+
+
+# --- OpenAI-style vision detection schemas & helpers ---
+
+class DetectionRequest(BaseModel):
+    """
+    JSON request body for /v1/vision/detections
+    Accepts a base64-encoded image string plus optional thresholds.
+    """
+
+    model: str
+    image: str  # base64 string, optionally with data:image/... prefix
+    conf: float = 0.5
+    iou: float = 0.45
+
+
+class Detection(BaseModel):
+    object: str = "detection"
+    index: int
+    cls: str
+    confidence: float
+    bbox: list[float]  # [x_center, y_center, width, height] in pixels
+    bbox_format: str = "xywh"
+
+
+class DetectionResponse(BaseModel):
+    id: str
+    object: str = "image.detections"
+    created: int
+    model: str
+    data: list[Detection]
+
+
+API_KEY: Optional[str] = None  # optionally set from env/config for real deployments
+
+
+def _error(detail_message: str, error_type: str, status_code: int) -> HTTPException:
+    return HTTPException(
+        status_code=status_code,
+        detail={
+            "error": {
+                "message": detail_message,
+                "type": error_type,
+            }
+        },
+    )
+
+
+async def verify_auth(authorization: Optional[str] = Header(None)):
+    """
+    OpenAI-style Bearer auth.
+    If API_KEY is None, auth is effectively disabled (useful for local testing).
+    """
+    if API_KEY is None:
+        return
+
+    if not authorization or not authorization.startswith("Bearer "):
+        raise _error("Missing or invalid Authorization header", "invalid_auth", 401)
+
+    token = authorization.removeprefix("Bearer ").strip()
+    if token != API_KEY:
+        raise _error("Invalid API key", "invalid_api_key", 401)
+
+
+def decode_base64_image(data: str):
+    """
+    Decode a base64-encoded image (optionally with a data: URI prefix) into a BGR numpy array.
+    """
+    if "," in data and data.strip().startswith("data:"):
+        data = data.split(",", 1)[1]
+
+    try:
+        img_bytes = base64.b64decode(data)
+    except Exception:
+        raise _error("Invalid base64 image data", "invalid_request_error", 400)
+
+    nparr = np.frombuffer(img_bytes, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if img is None:
+        raise _error("Could not decode image", "invalid_request_error", 400)
+
+    return img
+
+
+def run_image_inference(model_name: str, image_bgr, conf: float, iou: float) -> list[Detection]:
+    """
+    Run YOLO on a single image and return structured detections.
+    Currently uses the single loaded instance in `state.model` and
+    ignores `model_name` selection beyond logging.
+    """
+    if state.model is None:
+        raise _error("Model not loaded", "server_error", 500)
+
+    if model_name != state.model_path:
+        logger.warning(
+            f"Requested model '{model_name}' does not match loaded model '{state.model_path}'. "
+            "Using loaded model."
+        )
+
+    try:
+        results = state.model(image_bgr, conf=conf, iou=iou, verbose=False)
+    except Exception as e:
+        logger.error(f"Model inference error: {e}")
+        raise _error("Model inference failed", "server_error", 500)
+
+    detections: list[Detection] = []
+    idx = 0
+
+    for r in results:
+        boxes = r.boxes
+        for box in boxes:
+            b_xywh = box.xywh[0].tolist()
+            conf_val = float(box.conf[0])
+            cls_idx = int(box.cls[0])
+            class_name = state.model.names[cls_idx]
+
+            detections.append(
+                Detection(
+                    index=idx,
+                    cls=class_name,
+                    confidence=conf_val,
+                    bbox=[float(x) for x in b_xywh],
+                )
+            )
+            idx += 1
+
+    return detections
 
 # --- websocket management ---
 class ConnectionManager:
@@ -208,6 +347,54 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+
+
+# --- OpenAI-style image detection endpoints ---
+
+@app.post("/v1/vision/detections", response_model=DetectionResponse)
+async def detect_from_base64(
+    body: DetectionRequest,
+    auth=Depends(verify_auth),
+):
+    """
+    Accept a base64-encoded image and return detections in an OpenAI-style envelope.
+    """
+    image_bgr = decode_base64_image(body.image)
+    detections = run_image_inference(body.model, image_bgr, body.conf, body.iou)
+
+    return DetectionResponse(
+        id=f"detect-{uuid.uuid4().hex[:8]}",
+        created=int(time.time()),
+        model=state.model_path or body.model,
+        data=detections,
+    )
+
+
+@app.post("/v1/vision/detections:file", response_model=DetectionResponse)
+async def detect_from_file(
+    model: str,
+    conf: float = 0.5,
+    iou: float = 0.45,
+    file: UploadFile = File(...),
+    auth=Depends(verify_auth),
+):
+    """
+    Accept an uploaded image file and return detections in an OpenAI-style envelope.
+    """
+    content = await file.read()
+    nparr = np.frombuffer(content, np.uint8)
+    image_bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if image_bgr is None:
+        raise _error("Could not decode uploaded image", "invalid_request_error", 400)
+
+    detections = run_image_inference(model, image_bgr, conf, iou)
+
+    return DetectionResponse(
+        id=f"detect-{uuid.uuid4().hex[:8]}",
+        created=int(time.time()),
+        model=state.model_path or model,
+        data=detections,
+    )
 
 # --- CLI Entry Point ---
 
