@@ -69,7 +69,7 @@ function createInstanceCard(config) {
     emptyState.classList.add('hidden');
 
     const { id, port, model } = config;
-    const wsUrl = `ws://${localIp}:${port}/detections`;
+    const apiUrl = `http://${localIp}:${port}/detect`;
 
     const card = document.createElement('div');
     card.className = 'instance-card';
@@ -92,8 +92,8 @@ function createInstanceCard(config) {
                 <span class="detail-value">${port}</span>
             </div>
             <div class="detail-item">
-                <span>WebSocket</span>
-                <span class="detail-value">${wsUrl}</span>
+                <span>API Endpoint</span>
+                <span class="detail-value">${apiUrl}</span>
             </div>
         </div>
         
