@@ -306,6 +306,16 @@ select {
     outline: none;
 }
 
+input[type="number"] {
+    width: 100%;
+    padding: 12px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    outline: none;
+}
+
 .modal-actions {
     display: flex;
     justify-content: flex-end;

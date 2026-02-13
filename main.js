@@ -73,19 +73,24 @@ ipcMain.handle('get-models', () => {
 
 ipcMain.handle('start-instance', async (event, config) => {
 
-    const { id, port, model } = config;
+    const { id, port, model, width, height } = config;
 
     // Decide python command (python3 for Mac)
     const pythonCmd = process.platform === 'darwin' ? 'python3' : 'python';
     const scriptPath = path.join(__dirname, 'yolo', 'yolo.py');
 
-    const proc = spawn(pythonCmd, [
+    const args = [
         scriptPath,
         '--model', model || 'yolov8n.pt',
         '--port', port.toString(),
         '--name', id,
-        '--device', 'mps' // Default to mps for your Mac
-    ]);
+        '--device', 'mps'
+    ];
+
+    if (width) args.push('--width', width.toString());
+    if (height) args.push('--height', height.toString());
+
+    const proc = spawn(pythonCmd, args);
 
     instances.set(id, proc);
 

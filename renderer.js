@@ -52,8 +52,13 @@ confirmAddBtn.onclick = async () => {
     const id = `yolo${instanceCounter++}`;
     const port = 9000 + instanceCounter; // Sequential ports
     const model = modelSelect.value;
+    const wVal = document.getElementById('resize-width').value;
+    const hVal = document.getElementById('resize-height').value;
 
-    const config = { id, port, model };
+    const width = wVal ? parseInt(wVal) : null;
+    const height = hVal ? parseInt(hVal) : null;
+
+    const config = { id, port, model, width, height };
 
     modalOverlay.classList.add('hidden');
 
@@ -95,6 +100,11 @@ function createInstanceCard(config) {
                 <span>API Endpoint</span>
                 <span class="detail-value">${apiUrl}</span>
             </div>
+            ${config.width && config.height ? `
+            <div class="detail-item">
+                <span>Resize</span>
+                <span class="detail-value">${config.width}x${config.height}</span>
+            </div>` : ''}
         </div>
         
         <div class="instance-actions">
