@@ -8,10 +8,86 @@ let mainWindow;
 const instances = new Map();
 const modelsPath = path.join(__dirname, 'models');
 
+// Load Balancer State
+const activeModels = new Map(); // modelName -> { ports: [], nextIndex: 0 }
+
+function registerInstance(model, port) {
+    if (!activeModels.has(model)) {
+        activeModels.set(model, { ports: [], nextIndex: 0 });
+    }
+    const modelState = activeModels.get(model);
+    if (!modelState.ports.includes(port)) {
+        modelState.ports.push(port);
+        console.log(`[Overseer] Registered port ${port} for model ${model}. Total: ${modelState.ports.length}`);
+    }
+}
+
+function unregisterInstance(model, port) {
+    if (activeModels.has(model)) {
+        const modelState = activeModels.get(model);
+        modelState.ports = modelState.ports.filter(p => p !== port);
+        console.log(`[Overseer] Unregistered port ${port} from model ${model}. Remaining: ${modelState.ports.length}`);
+        if (modelState.ports.length === 0) {
+            activeModels.delete(model);
+        } else if (modelState.nextIndex >= modelState.ports.length) {
+            modelState.nextIndex = 0; // Reset index if it's now out of bounds
+        }
+    }
+}
+
 // Ensure models directory exists
 if (!fs.existsSync(modelsPath)) {
     fs.mkdirSync(modelsPath);
 }
+
+// ------------------------------------------------------------------
+// OVERSEER: EXPRESS PROXY SERVER
+// ------------------------------------------------------------------
+const express = require('express');
+const { createProxyMiddleware } = require('http-proxy-middleware');
+
+const gateway = express();
+const GATEWAY_PORT = 9000;
+
+gateway.post('/detect', (req, res, next) => {
+    // 1. Extract model from query param (e.g. /detect?model=yolov8n.pt)
+    const requestedModel = req.query.model;
+
+    if (!requestedModel) {
+        return res.status(400).json({ error: "Missing 'model' query parameter" });
+    }
+
+    // 2. Look up active instances for this model
+    const modelState = activeModels.get(requestedModel);
+
+    if (!modelState || modelState.ports.length === 0) {
+        return res.status(503).json({ error: `No active instances found for model: ${requestedModel}` });
+    }
+
+    // 3. Round-robin selection
+    const ports = modelState.ports;
+    const targetPort = ports[modelState.nextIndex];
+
+    // Update index for next time
+    modelState.nextIndex = (modelState.nextIndex + 1) % ports.length;
+
+    console.log(`[Overseer] Routing request for ${requestedModel} to Port ${targetPort}`);
+
+    // 4. Dynamically proxy the request to the selected port
+    const dynamicProxy = createProxyMiddleware({
+        target: `http://localhost:${targetPort}`,
+        changeOrigin: true,
+        logLevel: 'silent' // We handle our own logging
+    });
+
+    // Execute the proxy middleware
+    dynamicProxy(req, res, next);
+});
+
+gateway.listen(GATEWAY_PORT, () => {
+    console.log(`[Overseer] Load Balancer Gateway listening on http://localhost:${GATEWAY_PORT}`);
+});
+// ------------------------------------------------------------------
 
 
 function createWindow() {
@@ -40,7 +116,7 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
     // Kill all python processes on exit
     for (const [id, proc] of instances) {
-        proc.kill();
+        proc.process.kill();
     }
     if (process.platform !== 'darwin') app.quit();
 });
@@ -74,6 +150,7 @@ ipcMain.handle('get-models', () => {
 ipcMain.handle('start-instance', async (event, config) => {
 
     const { id, port, model, width, height } = config;
+    const modelToRun = model || 'yolov8n.pt';
 
     // Decide python command (python3 for Mac)
     const pythonCmd = process.platform === 'darwin' ? 'python3' : 'python';
@@ -81,7 +158,7 @@ ipcMain.handle('start-instance', async (event, config) => {
 
     const args = [
         scriptPath,
-        '--model', model || 'yolov8n.pt',
+        '--model', modelToRun,
         '--port', port.toString(),
         '--name', id,
         '--device', 'mps'
@@ -92,7 +169,9 @@ ipcMain.handle('start-instance', async (event, config) => {
 
     const proc = spawn(pythonCmd, args);
 
-    instances.set(id, proc);
+    // Save model and port so we know what to unregister later
+    instances.set(id, { process: proc, model: modelToRun, port: port });
+    registerInstance(modelToRun, port);
 
     proc.stdout.on('data', (data) => {
         console.log(`[${id}] ${data}`);
@@ -106,6 +185,7 @@ ipcMain.handle('start-instance', async (event, config) => {
 
     proc.on('close', (code) => {
         console.log(`[${id}] exited with code ${code}`);
+        unregisterInstance(modelToRun, port);
         instances.delete(id);
         mainWindow.webContents.send('instance-stopped', { id, code });
     });
@@ -114,9 +194,10 @@ ipcMain.handle('start-instance', async (event, config) => {
 });
 
 ipcMain.handle('stop-instance', async (event, id) => {
-    const proc = instances.get(id);
-    if (proc) {
-        proc.kill();
+    const instanceData = instances.get(id);
+    if (instanceData) {
+        instanceData.process.kill();
+        unregisterInstance(instanceData.model, instanceData.port);
         instances.delete(id);
         return { status: 'stopped' };
     }
