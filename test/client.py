@@ -3,7 +3,7 @@ import httpx
 import time
 import os
 import sys
-
+#This is the test client which spins up 10 workers and keeps sending requests to verify FPS
 # Configuration
 URL = "http://localhost:9000/detect?model=models/yolov8n.pt"
 IMAGE_PATH = "test_image.jpg"

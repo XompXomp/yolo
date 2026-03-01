@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 import torch
 import uvicorn
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Query
 from pydantic import BaseModel
 from ultralytics import YOLO
 
@@ -69,6 +69,7 @@ async def detect(
     file: UploadFile = File(...),
     conf: float = 0.5,
     iou: float = 0.45,
+    classes: Optional[list[str]] = Query(None)
 ):
     try:
         contents = await file.read()
@@ -105,6 +106,14 @@ async def detect(
         for r in results:
             boxes = r.boxes
             for box in boxes:
+                confidence = float(box.conf[0])
+                cls = int(box.cls[0])
+                class_name = model.names[cls]
+                
+                # Apply optional class filter
+                if classes and class_name not in classes:
+                    continue
+
                 # Get box coordinates (x, y, w, h)
                 b = box.xywh[0].tolist()
                 
@@ -114,10 +123,6 @@ async def detect(
                     b[1] *= scale_y # y
                     b[2] *= scale_x # w
                     b[3] *= scale_y # h
-
-                confidence = float(box.conf[0])
-                cls = int(box.cls[0])
-                class_name = model.names[cls]
                 
                 detections.append({
                     "class": class_name,

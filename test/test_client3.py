@@ -4,7 +4,7 @@ import sys
 import time
 import cv2
 import numpy as np
-#This is test client which sends test_image2.jpg but with a dog class tag
+#Sends test_image2.jpg with no class tag
 def draw_detections(image, detections):
     for det in detections:
         bbox = det["bbox"]  # [x, y, w, h] center-based
@@ -31,7 +31,7 @@ def draw_detections(image, detections):
         cv2.putText(image, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
 
 def main():
-    url = "http://localhost:9000/detect?model=models/yolov8n.pt&classes=dog"
+    url = "http://localhost:9000/detect?model=models/yolov8n.pt"
     image_path = "test_image2.jpg"
     fps = 25
     frame_duration = 1.0 / fps
