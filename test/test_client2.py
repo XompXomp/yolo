@@ -32,7 +32,7 @@ def draw_detections(image, detections):
 
 def main():
     url = "http://localhost:9000/detect?model=models/yolov8n.pt"
-    image_path = "test_image.jpg"
+    image_path = "test_image2.jpg"
     fps = 25
     frame_duration = 1.0 / fps
 
